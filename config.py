@@ -43,4 +43,5 @@ HISTORY_RECORD_INTERVAL_SEC = 60
 # config.py 하단에 추가
 DB_PATH = BASE_DIR / "mecom_data.db"
 ADMIN_PASSWORD = "1234"  # 접근 비밀번호 설정
+PASSWORD_FILE = BASE_DIR / "password.json"
 TEST_MODE = False  # 테스트 모드: PLC 연결 없이 샘플 데이터 사용

@@ -1,11 +1,17 @@
-﻿from datetime import datetime
-import requests
-# app.py 상단 import 부분 수정
-from config import CONTROL_ENABLED, ADMIN_PASSWORD
+﻿import json
+from datetime import datetime, timedelta
+from io import BytesIO
+from pathlib import Path
+
+from fpdf import FPDF
+
 import pandas as pd
+import requests
 import streamlit as st
 import streamlit.components.v1 as components
 from streamlit_autorefresh import st_autorefresh
+
+from config import CONTROL_ENABLED, ADMIN_PASSWORD, PASSWORD_FILE
 from data_provider import (
     load_control_command,
     load_history_data,
@@ -26,11 +32,36 @@ st.markdown("""
     .login-title { margin-top: 3rem !important; }
     thead tr th:first-child, tbody tr th:first-child { display: none !important; }
     thead tr th:only-child { display: table-cell !important; }
+    thead tr th button { display: none !important; }
+    @media print {
+        section[data-testid="stSidebar"] { display: none !important; }
+        header { display: none !important; }
+        .stAppDeployButton { display: none !important; }
+        footer { display: none !important; }
+        #MainMenu { display: none !important; }
+        .main > div { padding: 0 !important; max-width: 100% !important; }
+        button { display: none !important; }
+        .report-container { display: block !important; }
+    }
 </style>
 """, unsafe_allow_html=True)
 
 if "current_menu" not in st.session_state:
     st.session_state.current_menu = "📡 감시"
+
+# ── 비밀번호 초기화 ─────────────────────────────
+if "admin_password" not in st.session_state:
+    if PASSWORD_FILE.exists():
+        with open(str(PASSWORD_FILE), "r") as f:
+            st.session_state.admin_password = json.load(f).get("password", ADMIN_PASSWORD)
+    else:
+        st.session_state.admin_password = ADMIN_PASSWORD
+
+
+def save_password(new_pw: str) -> None:
+    with open(str(PASSWORD_FILE), "w") as f:
+        json.dump({"password": new_pw}, f)
+    st.session_state.admin_password = new_pw
 
 def load_history_from_api():
     """API 서버로부터 이력 데이터를 가져와서 판다스 데이터프레임으로 변환"""
@@ -72,7 +103,7 @@ def render_sidebar() -> None:
     st.sidebar.markdown("## 📊 MECOM")
     st.sidebar.markdown("---")
 
-    menu_options = ["📡 감시", "📈 이력", "📊 트렌드"]
+    menu_options = ["📡 감시", "📈 이력", "📊 트렌드", "🔑 비밀번호 변경"]
     # menu_options = ["📡 감시", "📈 이력", "⚠️ 알람", "📊 트렌드"]
     for option in menu_options:
         is_active = st.session_state.current_menu == option
@@ -144,6 +175,9 @@ def render_sidebar() -> None:
         label="누적 열량 (kW/h)", value=f"{realtime.get('accum_heat', 0.0):,.0f}"
     )
 
+    st.sidebar.markdown("---")
+    st.sidebar.info("🕐 자동 일일리포트\n매일 01:00 자동 생성 중")
+
 
 def render_hmi_dashboard() -> None:
     realtime = load_realtime_data()
@@ -161,35 +195,190 @@ def render_hmi_dashboard() -> None:
     )
 
 
+def _make_report_pdf(df: pd.DataFrame, rpt_type: str, interval: str) -> bytes:
+    rpt_labels = {"daily": "일일", "weekly": "주간", "monthly": "월간", "custom": "사용자지정"}
+    pdf = FPDF(orientation="L", unit="mm", format="A4")
+    pdf.add_font("Nanum", "", "C:/Windows/Fonts/malgun.ttf", uni=True)
+    pdf.add_page()
+    pdf.set_font("Nanum", size=12)
+    pdf.cell(0, 8, text=f"MECOM {rpt_labels[rpt_type]}리포트 ({interval})", new_x="LMARGIN", new_y="NEXT")
+    pdf.ln(4)
+    cols = list(df.columns)
+    col_w = max(20, int(270 / len(cols))) if cols else 270
+    pdf.set_font("Nanum", size=7)
+    for c in cols:
+        pdf.cell(col_w, 6, text=c, border=1)
+    pdf.ln()
+    for _, row in df.iterrows():
+        for c in cols:
+            v = str(row[c]) if pd.notna(row[c]) else ""
+            pdf.cell(col_w, 5, text=v, border=1)
+        pdf.ln()
+    buf = BytesIO()
+    pdf.output(buf)
+    return buf.getvalue()
+
+
+def _report_filename(rpt_type: str) -> str:
+    rpt_labels = {"daily": "일일", "weekly": "주간", "monthly": "월간", "custom": "사용자지정"}
+    now = datetime.now()
+    if rpt_type == "weekly":
+        monday = (now - timedelta(days=now.weekday())).strftime("%m%d")
+        date_str = f"{monday}~"
+    elif rpt_type == "monthly":
+        date_str = now.strftime("%Y-%m")
+    elif rpt_type == "daily":
+        date_str = now.strftime("%Y-%m-%d")
+    else:
+        date_str = now.strftime("%Y%m%d_%H%M%S")
+    return f"{rpt_labels[rpt_type]}리포트_{date_str}.pdf"
+
+
+def _save_report_pdf(df: pd.DataFrame, rpt_type: str, interval: str) -> str:
+    folder_map = {"daily": "일일리포트", "weekly": "주간리포트", "monthly": "월간리포트", "custom": "사용자지정"}
+    save_dir = Path.home() / "Desktop" / "리포트" / folder_map[rpt_type]
+    save_dir.mkdir(parents=True, exist_ok=True)
+    filepath = save_dir / _report_filename(rpt_type)
+    filepath.write_bytes(_make_report_pdf(df, rpt_type, interval))
+    return str(filepath)
+
+
 def render_history_page() -> None:
     st.title("운전 이력")
-    df = load_history_data()
-    if df.empty:
+    raw = load_history_data()
+    if raw.empty:
         st.warning("데이터가 없습니다.")
         return
-    df = df.sort_values("날짜", ascending=False)
+    raw["날짜"] = pd.to_datetime(raw["날짜"], format="%y/%m/%d %H:%M", errors="coerce")
+    raw = raw.dropna(subset=["날짜"]).sort_values("날짜", ascending=False)
+    display_df = raw.copy()
 
-    # 멀티레벨 컬럼 (대분류 아래 소분류)
-    group_map = {
-        "날짜": ("날짜", ""),
-        "지중공급온도(1동)": ("지중공급온도", "1동"),
-        "지중공급온도(2동)": ("지중공급온도", "2동"),
-        "지중환수온도(1동)": ("지중환수온도", "1동"),
-        "지중환수온도(2동)": ("지중환수온도", "2동"),
-        "2차공급온도(1동)": ("2차공급온도", "1동"),
-        "2차공급온도(2동)": ("2차공급온도", "2동"),
-        "2차환수온도(1동)": ("2차환수온도", "1동"),
-        "2차환수온도(2동)": ("2차환수온도", "2동"),
-        "1동유량": ("유량", "1동"),
-        "2동유량": ("유량", "2동"),
-        "생산열량": ("생산열량", ""),
-        "누적열량": ("누적열량", ""),
+    merge_pairs = [
+        ("지중공급온도", ["지중공급온도(1동)", "지중공급온도(2동)"]),
+        ("지중환수온도", ["지중환수온도(1동)", "지중환수온도(2동)"]),
+        ("2차공급온도",   ["2차공급온도(1동)", "2차공급온도(2동)"]),
+        ("2차환수온도",   ["2차환수온도(1동)", "2차환수온도(2동)"]),
+        ("유량",          ["1동유량", "2동유량"]),
+    ]
+    out = display_df[["날짜"]].copy()
+    for label, (a, b) in merge_pairs:
+        if a in display_df and b in display_df:
+            out[label] = display_df[a].round(1).astype(str) + " / " + display_df[b].round(1).astype(str)
+    if "생산열량" in display_df:
+        out["순시열량"] = display_df["생산열량"].round(1)
+    if "누적열량" in display_df:
+        out["누적열량"] = display_df["누적열량"].round(1)
+    st.dataframe(out.head(15), use_container_width=True, hide_index=True)
+
+    # ── 리포트 ─────────────────────────────────────
+    st.markdown("---")
+    st.markdown("### 📊 리포트")
+
+    numeric_cols = [c for c in raw.columns if c != "날짜"]
+    now = pd.Timestamp.now()
+
+    r1, r2, r3, r4 = st.columns(4)
+    with r1:
+        if st.button("📅 일일 리포트", key="rpt_daily", use_container_width=True):
+            st.session_state.rpt_type = "daily"
+            st.session_state.pop("rpt_result", None)
+    with r2:
+        if st.button("📆 주간 리포트", key="rpt_weekly", use_container_width=True):
+            st.session_state.rpt_type = "weekly"
+            st.session_state.pop("rpt_result", None)
+    with r3:
+        if st.button("📆 월간 리포트", key="rpt_monthly", use_container_width=True):
+            st.session_state.rpt_type = "monthly"
+            st.session_state.pop("rpt_result", None)
+    with r4:
+        if st.button("📅 사용자 지정", key="rpt_custom", use_container_width=True):
+            st.session_state.rpt_type = "custom"
+            st.session_state.pop("rpt_result", None)
+
+    rpt_type = st.session_state.get("rpt_type")
+    if not rpt_type:
+        return
+
+    selected_cols = st.multiselect(
+        "항목 선택", options=numeric_cols,
+        default=numeric_cols[:3], key="rpt_cols"
+    )
+
+    interval_map = {
+        "daily":     ["1분", "10분", "30분", "1시간"],
+        "weekly":    ["10분", "30분", "1시간", "1일"],
+        "monthly":   ["1시간", "1일"],
+        "custom":    ["1분", "10분", "30분", "1시간", "1일"],
     }
-    col_order = [c for c in group_map if c in df.columns]
-    df = df[col_order]
-    df.columns = pd.MultiIndex.from_tuples([group_map[c] for c in col_order])
+    rule_map = {"1분": "1min", "10분": "10min", "30분": "30min", "1시간": "1H", "1일": "1D"}
+    interval = st.selectbox("주기", options=interval_map[rpt_type], key="rpt_interval")
 
-    st.dataframe(df.head(15), use_container_width=True, hide_index=True)
+    start_date = end_date = None
+    if rpt_type == "daily":
+        start_date = now.normalize()
+        end_date = now
+    elif rpt_type == "weekly":
+        start_date = now - pd.Timedelta(days=7)
+        end_date = now
+    elif rpt_type == "monthly":
+        start_date = now - pd.Timedelta(days=30)
+        end_date = now
+    else:
+        dc1, dc2 = st.columns(2)
+        with dc1:
+            d1 = st.date_input("시작일", value=now.date() - pd.Timedelta(days=7), key="rpt_start")
+        with dc2:
+            d2 = st.date_input("종료일", value=now.date(), key="rpt_end")
+        start_date = pd.Timestamp(d1)
+        end_date = pd.Timestamp(d2) + pd.Timedelta(days=1)
+
+    if st.button("조회", key="rpt_generate", use_container_width=True):
+        if not selected_cols:
+            st.warning("항목을 하나 이상 선택하세요.")
+        else:
+            data = raw.copy().sort_values("날짜")
+            mask = (data["날짜"] >= start_date) & (data["날짜"] <= end_date)
+            filtered = data.loc[mask].set_index("날짜")
+
+            if filtered.empty:
+                st.info("선택한 기간에 데이터가 없습니다.")
+            else:
+                rule = rule_map[interval]
+                agg = {col: "mean" for col in selected_cols}
+                if "누적열량" in selected_cols:
+                    agg["누적열량"] = "last"
+
+                report = filtered[selected_cols].resample(rule).agg(agg)
+                report = report.dropna(how="all").reset_index()
+                for c in selected_cols:
+                    report[c] = report[c].round(1)
+
+                pdf_bytes = _make_report_pdf(report, rpt_type, interval)
+                chart_data = report.set_index("날짜")
+                report["날짜"] = report["날짜"].dt.strftime("%y/%m/%d %H:%M")
+
+                st.session_state.rpt_result = {
+                    "report": report, "chart_data": chart_data,
+                    "pdf_bytes": pdf_bytes, "rpt_type": rpt_type,
+                    "interval": interval,
+                }
+
+    rpt = st.session_state.get("rpt_result")
+    if rpt:
+        st.markdown('<div class="report-container">', unsafe_allow_html=True)
+        st.dataframe(rpt["report"], use_container_width=True, hide_index=True)
+        if not rpt["chart_data"].empty:
+            st.line_chart(rpt["chart_data"].astype(float))
+        st.markdown("</div>", unsafe_allow_html=True)
+
+        pdf_name = _report_filename(rpt["rpt_type"])
+        if st.download_button(
+            "📄 PDF 저장", data=rpt["pdf_bytes"],
+            file_name=pdf_name, mime="application/pdf",
+            use_container_width=True,
+        ):
+            saved = _save_report_pdf(rpt["report"], rpt["rpt_type"], rpt["interval"])
+            st.success(f"✅ 저장 완료: {saved}")
 
 
 # def render_alarm_page() -> None:
@@ -224,6 +413,27 @@ def render_trend_page() -> None:
         chart_data = df.set_index("날짜")[selected]
         st.line_chart(chart_data)
 
+def render_password_page() -> None:
+    st.title("🔑 비밀번호 변경")
+    with st.form("password_change_form", clear_on_submit=True):
+        current_pw = st.text_input("현재 비밀번호", type="password")
+        new_pw = st.text_input("새 비밀번호", type="password")
+        confirm_pw = st.text_input("새 비밀번호 확인", type="password")
+        submitted = st.form_submit_button("변경", use_container_width=True)
+        if submitted:
+            if current_pw != st.session_state.admin_password:
+                st.error("현재 비밀번호가 일치하지 않습니다.")
+            elif len(new_pw) < 4:
+                st.error("새 비밀번호는 최소 4자 이상이어야 합니다.")
+            elif new_pw != confirm_pw:
+                st.error("새 비밀번호가 일치하지 않습니다.")
+            elif new_pw == current_pw:
+                st.warning("현재 비밀번호와 동일합니다. 다른 비밀번호를 입력하세요.")
+            else:
+                save_password(new_pw)
+                st.success("비밀번호가 변경되었습니다.")
+
+
 def check_password():
     """비밀번호 확인 함수"""
     if "authenticated" not in st.session_state:
@@ -233,7 +443,7 @@ def check_password():
         st.markdown('<h1 class="login-title">🔒 시스템 접근 제한</h1>', unsafe_allow_html=True)
         pwd = st.text_input("접근 비밀번호를 입력하세요", type="password")
         if st.button("접속"):
-            if pwd == ADMIN_PASSWORD:
+            if pwd == st.session_state.admin_password:
                 st.session_state.authenticated = True
                 st.rerun()
             else:
@@ -261,6 +471,8 @@ def main() -> None:
     #     render_alarm_page()
     elif st.session_state.current_menu == "📊 트렌드":
         render_trend_page()
+    elif st.session_state.current_menu == "🔑 비밀번호 변경":
+        render_password_page()
 
 
 if __name__ == "__main__":
