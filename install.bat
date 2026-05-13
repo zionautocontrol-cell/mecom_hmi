@@ -48,12 +48,36 @@ for %%p in (
     )
 )
 
-:: Not found
-echo   Python not found on this computer.
+:: Not found → auto-install
+echo   Python not found. Downloading Python 3.12.4...
 echo.
-echo   Please install Python 3.8+ from python.org
-echo   (IMPORTANT: check "Add Python to PATH")
-echo.
+
+set PY_INSTALLER=%TEMP%\python-3.12.4-amd64.exe
+powershell -Command "try { Invoke-WebRequest -Uri 'https://www.python.org/ftp/python/3.12.4/python-3.12.4-amd64.exe' -OutFile '%TEMP%\python-3.12.4-amd64.exe' -UseBasicParsing; exit 0 } catch { exit 1 }"
+if %errorlevel% NEQ 0 (
+    echo   Download failed. Please install Python 3.8+ manually from python.org
+    echo   (check "Add Python to PATH")
+    pause
+    exit /b 1
+)
+
+echo   Installing Python (this may take a minute)...
+start /w "" "%PY_INSTALLER%" /quiet InstallAllUsers=1 PrependPath=1
+del "%PY_INSTALLER%" 2>NUL
+
+:: Refresh PATH
+for /f "tokens=2*" %%a in ('reg query "HKLM\SYSTEM\CurrentControlSet\Control\Session Manager\Environment" /v Path 2^>NUL') do set "PATH=%%b"
+for /f "tokens=2*" %%a in ('reg query "HKCU\Environment" /v Path 2^>NUL') do set "PATH=%%b;%PATH%"
+
+:: Verify installation
+python -c "import sys; print(f'Python {sys.version_info[0]}.{sys.version_info[1]}.{sys.version_info[2]}')" > "%TEMP%\pyver.txt" 2>&1
+if %errorlevel% EQU 0 (
+    set /p PYVER=<"%TEMP%\pyver.txt"
+    set PYTHON_CMD=python
+    goto :PYTHON_OK
+)
+
+echo   Installation verification failed. Try installing manually from python.org
 pause
 exit /b 1
 
