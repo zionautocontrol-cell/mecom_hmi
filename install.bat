@@ -10,23 +10,23 @@ cd /d "%~dp0"
 
 echo [1/4] Checking Python...
 
-set PYTHON_CMD=
-
-where python >NUL 2>NUL
+:: 1) python 명령어 테스트 (Windows Store 방지: --version 없이 직접 호출)
+python -c "import sys; print(f'Python {sys.version_info[0]}.{sys.version_info[1]}.{sys.version_info[2]}')" > "%TEMP%\pyver.txt" 2>&1
 if %errorlevel% EQU 0 (
-    for /f "tokens=2" %%i in ('python --version 2^>^&1') do set PYVER=%%i
+    set /p PYVER=<"%TEMP%\pyver.txt"
     set PYTHON_CMD=python
     goto :PYTHON_OK
 )
 
-where py >NUL 2>NUL
+:: 2) py launcher
+py -3 -c "import sys; print(f'Python {sys.version_info[0]}.{sys.version_info[1]}.{sys.version_info[2]}')" > "%TEMP%\pyver.txt" 2>&1
 if %errorlevel% EQU 0 (
-    for /f "tokens=2" %%i in ('py --version 2^>^&1') do set PYVER=%%i
-    set PYTHON_CMD=py
+    set /p PYVER=<"%TEMP%\pyver.txt"
+    set PYTHON_CMD=py -3
     goto :PYTHON_OK
 )
 
-:: Check common install paths
+:: 3) Common install paths
 for %%p in (
     "%ProgramFiles%\Python313\python.exe"
     "%ProgramFiles%\Python312\python.exe"
@@ -40,42 +40,60 @@ for %%p in (
 ) do (
     if exist %%p (
         set PYTHON_CMD=%%p
-        %%~p --version >NUL 2>&1
+        %%~p -c "import sys; print(f'Python {sys.version_info[0]}.{sys.version_info[1]}.{sys.version_info[2]}')" > "%TEMP%\pyver.txt" 2>&1
+        if exist "%TEMP%\pyver.txt" (
+            set /p PYVER=<"%TEMP%\pyver.txt"
+        )
         goto :PYTHON_OK
     )
 )
 
-echo   Python not found.
-echo   Options:
-echo     1. Install from python.org (check "Add Python to PATH")
-echo     2. Or try: py -m pip install -r requirements.txt
+:: Not found
+echo   Python not found on this computer.
 echo.
-echo   After installing, re-run this installer.
+echo   Please install Python 3.8+ from python.org
+echo   (IMPORTANT: check "Add Python to PATH")
 echo.
 pause
 exit /b 1
 
 :PYTHON_OK
-echo   Found Python %PYVER% (%PYTHON_CMD%)
+del "%TEMP%\pyver.txt" 2>NUL
+echo   Found %PYVER% (%PYTHON_CMD%)
 
+:: ---------------------------------------------------------------
 echo [2/4] Installing libraries...
+echo   Running: %PYTHON_CMD% -m pip install -r requirements.txt
+echo.
+
 %PYTHON_CMD% -m pip install --upgrade pip -q
 %PYTHON_CMD% -m pip install -r requirements.txt
 if %errorlevel% EQU 0 (
+    echo.
     echo   Libraries installed OK
 ) else (
-    echo   Install failed. Try: %PYTHON_CMD% -m pip install -r requirements.txt
+    echo.
+    echo   Install FAILED.
+    echo.
+    echo   Possible causes:
+    echo     1. No internet connection
+    echo     2. Python is a Windows Store stub (install from python.org)
+    echo     3. Try: %PYTHON_CMD% -m pip install streamlit pandas pymodbus fpdf2 apscheduler
+    echo.
     pause
     exit /b 1
 )
 
+:: ---------------------------------------------------------------
 echo [3/4] COM port setup...
 set /p comport="  Enter COM port (default=COM6): "
 if "%comport%"=="" set comport=COM6
 echo.
 echo   Port set to %comport%
 powershell -Command "(Get-Content config.py) -replace 'MODBUS_PORT = \"COM\d+\"', 'MODBUS_PORT = \"%comport%\"' | Set-Content config.py -Encoding UTF8"
+echo   Updated config.py
 
+:: ---------------------------------------------------------------
 echo [4/4] Creating shortcuts...
 
 :: Create start_hmi.bat
@@ -104,8 +122,13 @@ powershell -Command ^
   $lnk.TargetPath = '%~dp0start_hmi.bat'; ^
   $lnk.WorkingDirectory = '%~dp0'; ^
   $lnk.Save() >NUL 2>&1
-echo   Desktop shortcut created
+if %errorlevel% EQU 0 (
+    echo   Desktop shortcut created
+) else (
+    echo   Warning: Could not create desktop shortcut (run as admin?)
+)
 
+:: ---------------------------------------------------------------
 echo.
 echo ==========================================
 echo  Installation Complete!
