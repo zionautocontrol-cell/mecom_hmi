@@ -74,6 +74,7 @@ set /p comport="  Enter COM port (default=COM6): "
 if "%comport%"=="" set comport=COM6
 echo.
 echo   Port set to %comport%
+powershell -Command "(Get-Content config.py) -replace 'MODBUS_PORT = \"COM\d+\"', 'MODBUS_PORT = \"%comport%\"' | Set-Content config.py -Encoding UTF8"
 
 echo [4/4] Creating shortcuts...
 
