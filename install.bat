@@ -40,7 +40,8 @@ for %%p in (
     )
 )
 
-echo   Python not found. Installing Python 3.12...
+:DOWNLOAD_PYTHON
+echo   Installing Python 3.12...
 
 set PY_INSTALLER=%TEMP%\python-3.12.4-amd64.exe
 echo   Downloading...
@@ -73,6 +74,14 @@ exit /b 1
 
 :PYTHON_OK
 del "%TEMP%\pyver.txt" 2>NUL
+
+:: Check for Microsoft Store Python (skip it)
+"%PYTHON_CMD%" -c "import sys; exit(0 if 'WindowsApps' in sys.executable or 'pythoncore' in sys.executable else 1)" 2>NUL
+if %errorlevel% EQU 0 (
+    echo   Detected Microsoft Store Python - installing real Python...
+    goto :DOWNLOAD_PYTHON
+)
+
 echo   %PYVER% (%PYTHON_CMD%)
 
 echo [2/4] Installing libraries...
