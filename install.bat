@@ -28,22 +28,22 @@ if %errorlevel% EQU 0 (
 
 :: 3) Common install paths
 for %%p in (
-    "%ProgramFiles%\Python313\python.exe"
-    "%ProgramFiles%\Python312\python.exe"
-    "%ProgramFiles%\Python311\python.exe"
-    "%ProgramFiles(x86)%\Python313\python.exe"
-    "%ProgramFiles(x86)%\Python312\python.exe"
-    "%ProgramFiles(x86)%\Python311\python.exe"
+    "C:\Program Files\Python313\python.exe"
+    "C:\Program Files\Python312\python.exe"
+    "C:\Program Files\Python311\python.exe"
+    "C:\Program Files (x86)\Python313\python.exe"
+    "C:\Program Files (x86)\Python312\python.exe"
+    "C:\Program Files (x86)\Python311\python.exe"
     "%LocalAppData%\Programs\Python\Python313\python.exe"
     "%LocalAppData%\Programs\Python\Python312\python.exe"
     "%LocalAppData%\Programs\Python\Python311\python.exe"
 ) do (
     if exist %%p (
-        set PYTHON_CMD=%%p
-        %%~p -c "import sys; print(f'Python {sys.version_info[0]}.{sys.version_info[1]}.{sys.version_info[2]}')" > "%TEMP%\pyver.txt" 2>&1
+        "%%~p" -c "import sys; print(f'Python {sys.version_info[0]}.{sys.version_info[1]}.{sys.version_info[2]}')" > "%TEMP%\pyver.txt" 2>&1
         if exist "%TEMP%\pyver.txt" (
             set /p PYVER=<"%TEMP%\pyver.txt"
         )
+        set PYTHON_CMD=%%~p
         goto :PYTHON_OK
     )
 )
@@ -53,31 +53,34 @@ echo   Python not found. Downloading Python 3.12.4...
 echo.
 
 set PY_INSTALLER=%TEMP%\python-3.12.4-amd64.exe
+echo   Downloading (may take a moment)...
 powershell -Command "try { Invoke-WebRequest -Uri 'https://www.python.org/ftp/python/3.12.4/python-3.12.4-amd64.exe' -OutFile '%TEMP%\python-3.12.4-amd64.exe' -UseBasicParsing; exit 0 } catch { exit 1 }"
 if %errorlevel% NEQ 0 (
-    echo   Download failed. Please install Python 3.8+ manually from python.org
-    echo   (check "Add Python to PATH")
+    echo   Download failed.
+    echo   Please install Python 3.12 manually from python.org
     pause
     exit /b 1
 )
 
-echo   Installing Python (this may take a minute)...
-start /w "" "%PY_INSTALLER%" /quiet InstallAllUsers=1 PrependPath=1
+echo   Installing Python...
+start /w "" "%PY_INSTALLER%" /quiet PrependPath=1 Include_test=0
 del "%PY_INSTALLER%" 2>NUL
 
-:: Refresh PATH
-for /f "tokens=2*" %%a in ('reg query "HKLM\SYSTEM\CurrentControlSet\Control\Session Manager\Environment" /v Path 2^>NUL') do set "PATH=%%b"
-for /f "tokens=2*" %%a in ('reg query "HKCU\Environment" /v Path 2^>NUL') do set "PATH=%%b;%PATH%"
+:: Python이 설치된 경로 찾기
+if exist "%LocalAppData%\Programs\Python\Python312\python.exe" set PYTHON_CMD=%LocalAppData%\Programs\Python\Python312\python.exe
+if exist "%ProgramFiles%\Python312\python.exe" set PYTHON_CMD=%ProgramFiles%\Python312\python.exe
+if exist "%ProgramFiles(x86)%\Python312\python.exe" set PYTHON_CMD=%ProgramFiles(x86)%\Python312\python.exe
 
-:: Verify installation
-python -c "import sys; print(f'Python {sys.version_info[0]}.{sys.version_info[1]}.{sys.version_info[2]}')" > "%TEMP%\pyver.txt" 2>&1
-if %errorlevel% EQU 0 (
-    set /p PYVER=<"%TEMP%\pyver.txt"
-    set PYTHON_CMD=python
-    goto :PYTHON_OK
+:: Found it?
+if defined PYTHON_CMD (
+    "%PYTHON_CMD%" -c "import sys; print(f'Python {sys.version_info[0]}.{sys.version_info[1]}')" > "%TEMP%\pyver.txt" 2>&1
+    if %errorlevel% EQU 0 (
+        set /p PYVER=<"%TEMP%\pyver.txt"
+        goto :PYTHON_OK
+    )
 )
 
-echo   Installation verification failed. Try installing manually from python.org
+echo   Installation failed. Try installing Python 3.12 manually from python.org
 pause
 exit /b 1
 
