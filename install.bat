@@ -90,26 +90,30 @@ echo   Found %PYVER% (%PYTHON_CMD%)
 
 :: ---------------------------------------------------------------
 echo [2/4] Installing libraries...
-echo   Running: %PYTHON_CMD% -m pip install -r requirements.txt
 echo.
 
-%PYTHON_CMD% -m pip install --upgrade pip -q
-%PYTHON_CMD% -m pip install -r requirements.txt
+call %PYTHON_CMD% -m pip install --upgrade pip -q
+call %PYTHON_CMD% -m pip install -r requirements.txt
 if %errorlevel% EQU 0 (
     echo.
     echo   Libraries installed OK
-) else (
-    echo.
-    echo   Install FAILED.
-    echo.
-    echo   Possible causes:
-    echo     1. No internet connection
-    echo     2. Python is a Windows Store stub (install from python.org)
-    echo     3. Try: %PYTHON_CMD% -m pip install streamlit pandas pymodbus fpdf2 apscheduler
-    echo.
-    pause
-    exit /b 1
+    goto :CONTINUE
 )
+
+echo.
+echo   pip install FAILED.
+echo   Possible causes:
+echo     1. No internet connection
+echo     2. Python is a Windows Store stub (install from python.org)
+echo.
+echo   You can retry manually after closing this window:
+echo     cd /d "%~dp0"
+echo     %PYTHON_CMD% -m pip install -r requirements.txt
+echo.
+pause
+exit /b 1
+
+:CONTINUE
 
 :: ---------------------------------------------------------------
 echo [3/4] COM port setup...
