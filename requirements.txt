@@ -2,6 +2,7 @@ streamlit
 streamlit-autorefresh
 pandas
 requests
+pyserial
 pymodbus
 fpdf2
 apscheduler
