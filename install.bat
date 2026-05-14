@@ -104,14 +104,23 @@ exit /b 1
 
 :CONTINUE
 
-echo [3/4] COM port setup...
+echo [3/5] Clearing previous deployment data...
+del /f /q "realtime_data.json" 2>NUL
+del /f /q "history_data.csv" 2>NUL
+del /f /q "alarm_history.csv" 2>NUL
+del /f /q "control_command.json" 2>NUL
+del /f /q "mecom_data.db" 2>NUL
+del /f /q "mecom_hmi.log" 2>NUL
+echo   Previous data cleared.
+
+echo [4/5] COM port setup...
 set /p comport="  Enter COM port (default=COM6): "
 if "%comport%"=="" set comport=COM6
 echo   Port set to %comport%
 powershell -Command "(Get-Content config.py) -replace 'MODBUS_PORT = \"COM\d+\"', 'MODBUS_PORT = \"%comport%\"' | Set-Content config.py -Encoding UTF8"
 echo   Config updated
 
-echo [4/4] Creating shortcuts...
+echo [5/5] Creating shortcuts...
 
 > start_hmi.bat (
 echo @echo off
