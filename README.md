@@ -39,3 +39,4 @@ docker run -p 8501:8501 mecom-hmi
 - `app.py`: Streamlit UI
 - `realtime_data.json`: 실시간 상태 데이터 저장
 - `history_data.csv`: 운전 이력 저장
+- `change.md`: 6가지 문제와 해결 과정이 기록되어 있습니다
