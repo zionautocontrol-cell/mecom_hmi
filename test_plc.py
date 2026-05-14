@@ -19,7 +19,7 @@ try:
     import serial.tools.list_ports
     ports = [p.device for p in serial.tools.list_ports.comports()]
     print(f"\n[1/4] 사용 가능한 COM 포트: {ports}")
-    if MODBUS_PORT in ports:
+    if any(p.upper() == MODBUS_PORT.upper() for p in ports):
         print(f"  ✅ {MODBUS_PORT} 발견")
     else:
         print(f"  ⚠️  {MODBUS_PORT} 목록에 없음! 사용 가능: {ports}")

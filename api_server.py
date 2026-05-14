@@ -103,7 +103,14 @@ def get_hmi():
         val = words[i] if i < len(words) else 0.0
         html = html.replace(f"{{{{W{i}}}}}", f"{val:.1f}")
 
-    return HTMLResponse(html)
+    return HTMLResponse(
+        html,
+        headers={
+            "Cache-Control": "no-cache, no-store, must-revalidate",
+            "Pragma": "no-cache",
+            "Expires": "0",
+        },
+    )
 
 
 def _auto_daily_report():

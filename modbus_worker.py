@@ -173,16 +173,9 @@ def main() -> None:
             # 3️⃣ 데이터 읽기
             if client.connected:
                 try:
-                    # ─── 비트 읽기 (Discrete Input → Coil 순으로 폴백) ─────────────────
-                    # 모드버스맵 기준: 10001~10038 = Discrete Inputs (Modbus FC 02)
-                    # offset = 10001 - 10001 = 0
+                    # ─── 비트 읽기 (Discrete Input만 사용, 폴백 없음) ──────────────
+                    # coil 폴백 시 다른 주소의 데이터를 읽어와 HP 상태가 깜빡이는 현상 방지
                     bit_resp = _modbus_read_call(client, "read_discrete_inputs", address=0, count=38)
-                    if bit_resp is None or (hasattr(bit_resp, "isError") and bit_resp.isError()):
-                        logger.warning("Discrete input read failed at offset 0, trying coils as fallback.")
-                        bit_resp = _modbus_read_call(client, "read_coils", address=BIT_READ_START, count=38)
-                    if bit_resp is None or (hasattr(bit_resp, "isError") and bit_resp.isError()):
-                        logger.warning(f"Coil read also failed at address {BIT_READ_START}, trying offset 0.")
-                        bit_resp = _modbus_read_call(client, "read_coils", address=0, count=38)
 
                     # ─── 워드 읽기 (Holding Register → Input Register 순으로 폴백) ─────
                     # 모드버스맵 기준: 40001~40013 = Holding Registers (Modbus FC 03)

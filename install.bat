@@ -111,11 +111,16 @@ del /f /q "alarm_history.csv" 2>NUL
 del /f /q "control_command.json" 2>NUL
 del /f /q "mecom_data.db" 2>NUL
 del /f /q "mecom_hmi.log" 2>NUL
+del /f /q "password.json" 2>NUL
 echo   Previous data cleared.
 
 echo [4/5] COM port setup...
 set /p comport="  Enter COM port (default=COM6): "
 if "%comport%"=="" set comport=COM6
+REM Add COM prefix if user entered a number only
+echo %comport%|powershell -Command "$c=($input|%{$_} ).Trim(); if ($c -match '^\d+$') { 'COM'+$c } else { $c }" >"%TEMP%\comport_fix.txt"
+set /p comport=<"%TEMP%\comport_fix.txt"
+del "%TEMP%\comport_fix.txt" 2>NUL
 echo   Port set to %comport%
 powershell -Command "(Get-Content config.py) -replace 'MODBUS_PORT = \"COM\d+\"', 'MODBUS_PORT = \"%comport%\"' | Set-Content config.py -Encoding UTF8"
 echo   Config updated

@@ -179,6 +179,15 @@ def render_sidebar() -> None:
     st.sidebar.info("🕐 자동 일일리포트\n매일 01:00 자동 생성 중")
 
 
+@st.cache_data(ttl=3600)
+def _get_hmi_html():
+    import urllib.request
+    try:
+        return urllib.request.urlopen("http://localhost:8000/hmi", timeout=5).read().decode("utf-8")
+    except Exception:
+        return None
+
+
 def render_hmi_dashboard() -> None:
     realtime = load_realtime_data()
     current_ts = realtime.get("timestamp", "")
@@ -188,11 +197,11 @@ def render_hmi_dashboard() -> None:
     st.markdown(f"**마지막 업데이트:** {current_ts}  |  **통신 상태:** {status}")
     st.markdown("---")
 
-    components.html(
-        '<iframe src="http://localhost:8000/hmi" width="100%%" height="700" style="border:none;border-radius:8px;"></iframe>',
-        height=700,
-        scrolling=False,
-    )
+    hmi_html = _get_hmi_html()
+    if hmi_html:
+        components.html(hmi_html, height=700, scrolling=False)
+    else:
+        st.error("HMI 다이어그램을 불러올 수 없습니다. API 서버(localhost:8000)가 실행 중인지 확인하세요.")
 
 
 def _make_report_pdf(df: pd.DataFrame, rpt_type: str, interval: str) -> bytes:
@@ -460,8 +469,8 @@ def main() -> None:
 
     render_sidebar()
 
-    # 30초 간격 자동 갱신 (모든 페이지 동일)
-    st_autorefresh(interval=30000, key="auto_refresh")
+    # 120초 간격 자동 갱신 (감시화면 iframe 재로딩 최소화)
+    st_autorefresh(interval=120000, key="auto_refresh")
 
     if st.session_state.current_menu == "📡 감시":
         render_hmi_dashboard()
